@@ -1,0 +1,58 @@
+services:
+  sandbox-python:
+    build: ./sandbox/python
+    image: repowise-sandbox-python:latest
+    command: ["true"]
+
+  sandbox-node:
+    build: ./sandbox/node
+    image: repowise-sandbox-node:latest
+    command: ["true"]
+
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: repowise
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d repowise"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@database:5432/repowise
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174}
+      WORKSPACE_ROOT: /data/workspaces
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./:/workspace:ro
+      - repowise_workspaces:/data/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports: ["8000:8000"]
+    depends_on:
+      database:
+        condition: service_healthy
+      sandbox-python:
+        condition: service_completed_successfully
+      sandbox-node:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000/api
+    ports: ["5173:80"]
+    depends_on: [backend]
+
+volumes:
+  postgres_data:
+  repowise_workspaces:
